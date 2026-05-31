@@ -8,6 +8,7 @@
   "STAGE1_USE_HINTS": false,
 
   "STAGE2_VARIANT": "hybrid",
+  "STAGE2_TARGET_LANGUAGE": "python",
   "STAGE2_GENERATE_FLOWCHART": true,
   "STAGE2_GENERATE_TESTS": false
 }

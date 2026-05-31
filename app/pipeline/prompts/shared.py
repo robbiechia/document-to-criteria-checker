@@ -141,8 +141,7 @@ Return a RuleSet JSON object with this shape:
         "condition_type": "threshold",
         "field_required": "buyer_age",
         "operator": "gte",
-        "threshold": 21,
-        "ambiguity_flag": false
+        "threshold": 21
       }},
       {{
         "rule_id": "HDB-EXAMPLE-NUCLEUS",
@@ -206,8 +205,7 @@ Return a RuleSet JSON object with this shape:
         "condition_type": "threshold",
         "field_required": "buyer_age",
         "operator": "gte",
-        "threshold": 21,
-        "ambiguity_flag": false
+        "threshold": 21
       }},
       {{
         "rule_id": "HDB-EXAMPLE-NUCLEUS",
