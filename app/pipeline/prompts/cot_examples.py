@@ -6,13 +6,22 @@ Addresses the most common mistakes observed across experiments:
   2. existence vs membership (first-timer as DB row check)
   3. AND vs OR from document structure — with counter-example showing AND
   4. temporal direction (pre-application wait vs post-event deadline)
-  5. more_info_needed vs existence (property ownership vs record checks)
+  5. agency data does not change condition type (threshold/membership)
      plus entitlement field on grant amount conditions
 """
 
 STAGE1_SYSTEM_COT_EXAMPLES = """
-You are a policy analyst extracting structured eligibility rules from Singapore HDB
+You are a policy analyst extracting structured eligibility rules from Singapore
 government policy documents. Your output generates executable Python constraint code.
+
+CRITICAL: Only extract conditions EXPLICITLY STATED in the document.
+Do NOT infer, derive, or add conditions implied but not written.
+Do NOT add generic requirements (citizenship, age, residency) unless explicitly stated here.
+Do NOT add conditions from general knowledge about Singapore policy.
+Do NOT create a leaf that restates an intermediate node's grouping context.
+If an AND group is labelled "for households with no income", that context belongs inside
+the description of the evaluatable conditions within the group — not as a separate leaf.
+Every leaf must be an independently evaluatable check with its own source_clause.
 
 Study these examples before extracting.
 
@@ -113,17 +122,41 @@ Source B (post-event deadline): "Must submit within 6 months of marriage registr
 
 ---
 
-EXAMPLE 5 — more_info_needed vs existence
-existence: simple row check — "does a record exist for this NRIC?"
-  Use for: first-timer status, prior grant receipt, prior HDB loan.
+EXAMPLE 5 — agency data does not change the condition type
+The condition type describes WHAT kind of check it is, never WHERE the data comes from.
+The system does not know or assume which agency the user is from.
+Assume the profile can be populated with any field from any source.
 
-more_info_needed: scope too broad for a profile field.
-  Use for: private residential property ownership — "interest or ownership" includes
-  EC units, HUDC flats, nominees, trusts, gifts. No profile boolean captures this.
+  "Your Income Earned in 2023 as assessed by IRAS (Assessable Income for YA 2024)
+   must not exceed $39,000"
+  Wrong: existence or more_info_needed (because "IRAS" appears)
+  Correct: threshold — field=assessable_income_ya2024, operator=lte, threshold=39000
+  Why: This is a number. The check is "value ≤ $39,000". The data comes from IRAS
+  but that is irrelevant to the logical structure. If the profile has
+  assessable_income_ya2024, the code evaluates it directly.
 
-Source: "Must not own or have an interest in any private residential property."
-Wrong: existence (as if it's a row check)
-Correct: more_info_needed, escalated=true
+  "Annual Value of home is $21,000 and below"
+  Correct: threshold — field=annual_value_sgd, operator=lte, threshold=21000
+
+  "Has a Public Assistance (PA) card"
+  Correct: membership — field=has_pa_card, operator=eq, threshold=True
+
+  "Household monthly income per person must not exceed $1,500"
+  Correct: threshold — field=monthly_income_per_person, operator=lte, threshold=1500
+
+ONLY use existence for HISTORICAL RECORD queries (did an event ever occur?):
+  "Must be a first-timer who has not previously received any housing grant"
+  → existence: requires checking HDB grant history records
+
+There is no "more_info_needed" type. Every condition is codeable.
+"Must not own private residential property" → membership (owns_private_property == false).
+The profile field is populated by whoever runs the system. The check is always membership.
+
+Only use existence for HISTORICAL RECORD queries (did an event ever occur?):
+  "Must be a first-timer who has not previously received any housing grant" → existence
+
+Never escalate a condition because data comes from an external agency (ICA, IRAS, CPF, MSF).
+That is a data collection concern, not a condition type concern.
 
 ---
 
@@ -135,7 +168,7 @@ STEP 2 — ENUMERATE: every condition with description + VERBATIM source_clause.
 Tag each with its document pattern:
   TABLE ROW / CONDITIONAL ALT / MUST LIST ITEM / COMPOUND AND / STANDALONE
 
-STEP 3 — ESCALATION CHECK: mark existence, more_info_needed, discretionary before classifying.
+STEP 3 — ESCALATION CHECK: mark existence (historical record queries) and discretionary (officer judgment) before classifying.
 
 STEP 4 — CLASSIFY: assign type to non-escalated conditions.
   Income ceilings → computation. Grant amounts → computation + entitlement.

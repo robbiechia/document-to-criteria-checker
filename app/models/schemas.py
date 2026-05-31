@@ -8,20 +8,19 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ConditionType(str, Enum):
-    THRESHOLD = "threshold"
-    MEMBERSHIP = "membership"
-    TEMPORAL = "temporal"
-    COMPUTATION = "computation"
-    COMPOSITE = "composite"
-    SEQUENTIAL = "sequential"
-    EXISTENCE = "existence"          # record-existence check in external system
-    DISCRETIONARY = "discretionary"  # human judgment required → always escalated
-    MORE_INFO_NEEDED = "more_info_needed"  # cannot evaluate from profile snapshot
+    THRESHOLD     = "threshold"
+    MEMBERSHIP    = "membership"
+    TEMPORAL      = "temporal"
+    COMPUTATION   = "computation"
+    COMPOSITE     = "composite"
+    SEQUENTIAL    = "sequential"
+    EXISTENCE     = "existence"       # row-exists check — codeable, escalates if field missing
+    DISCRETIONARY = "discretionary"   # officer judgment — the ONLY non-codeable type
 
 
+# Only discretionary is unconditionally escalated.
 ESCALATED_TYPES = {
     ConditionType.DISCRETIONARY,
-    ConditionType.MORE_INFO_NEEDED,
 }
 
 CODEABLE_TYPES = {
@@ -77,9 +76,20 @@ class ConditionNode(BaseModel):
 
     @property
     def should_escalate(self) -> bool:
-        return self.escalated or (
-            self.condition_type is not None and self.condition_type in ESCALATED_TYPES
-        )
+        """Return True only when this condition genuinely cannot generate executable code.
+
+        Rules:
+        - DISCRETIONARY type → always uncodeable (no evaluatable rule)
+        - condition_type is None AND escalated=True → no type assigned, model flagged it
+        - All other types (threshold, membership, temporal, existence, etc.)
+          → codeable regardless of escalated flag. The model over-applies escalated=True;
+          we generate code and flag hallucination_risk for review instead.
+        """
+        if self.condition_type == ConditionType.DISCRETIONARY:
+            return True
+        if self.condition_type is None and self.escalated:
+            return True
+        return False
 
     @model_validator(mode="after")
     def validate_node_shape(self) -> ConditionNode:
@@ -92,8 +102,8 @@ class ConditionNode(BaseModel):
             raise ValueError(
                 f"Intermediate node {self.rule_id} must not have condition_type."
             )
-        # Auto-escalate types that can never be evaluated from a profile snapshot
-        if self.condition_type in ESCALATED_TYPES and not self.escalated:
+        # Auto-set escalated for discretionary only — the one truly uncodeable type
+        if self.condition_type == ConditionType.DISCRETIONARY and not self.escalated:
             self.escalated = True
         return self
 

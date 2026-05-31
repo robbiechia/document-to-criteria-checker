@@ -38,6 +38,9 @@ def run_experiment(
             "(Gemini Flash ×3 → GPT-4.1 validation)"
         )
 
+    # doc_id = filename stem (e.g. 'cpf_housing_grants_eligibility')
+    doc_id = Path(pdf_path).stem
+
     ruleset, completion_or_steps = extract_rules(
         pdf_path=pdf_path,
         constraint_scenario=scenario,
@@ -46,9 +49,9 @@ def run_experiment(
         use_hints=hints,
         chunking=chunking,
         save_raw=str(out_dir / f"{label}_raw_response.txt") if not is_agentic else None,
-        # For agentic, intermediates are saved to the results dir by agent_pipeline
     )
 
+    # Stamp doc_id onto the ruleset source_document for traceability
     ruleset_path = out_dir / f"{label}_ruleset.json"
     ruleset_path.write_text(ruleset.model_dump_json(indent=2), encoding="utf-8")
 
@@ -99,10 +102,17 @@ def run_experiment(
             f"- Model:         {comp.model}"
         )
 
+    eval_cmd = (
+        f"python eval/eval_stage1.py "
+        f"--ruleset {ruleset_path} "
+        f"--doc-id {doc_id} "
+        f"--label {label}"
+    )
     log_entry = f"""
 ## Run — {label}
 **Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
-**PDF:** {pdf_path}
+**File:** {pdf_path}
+**Doc ID:** {doc_id}
 **Variant:** {variant}
 **Hints:** {hints}
 **Chunking:** {chunking}
@@ -113,14 +123,15 @@ def run_experiment(
 - Hallucination risk flags: {ruleset.hallucination_risk_count}
 {token_section}
 
-**Eval metrics:** run `eval/eval_stage1.py` to populate.
+**Eval command:** `{eval_cmd}`
 
 | Metric | Value |
 |--------|-------|
 | Condition recall | - |
 | Type accuracy | - |
 | Escalation recall | - |
-| OR tree accuracy | - |
+| OR group accuracy | - |
+| AND group recall | - |
 | Hallucination rate | {ruleset.hallucination_risk_count}/{total} |
 
 **Manual observations:** fill in after inspection.

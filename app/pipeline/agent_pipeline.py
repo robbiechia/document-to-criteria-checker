@@ -135,12 +135,18 @@ def _patch_node(node: dict) -> None:
     # Intermediate node with children must not have condition_type
     if node.get("conditions") and node.get("condition_type"):
         node.pop("condition_type", None)
-    # Remap legacy types
-    _REMAP = {"history": "existence", "spatial": "more_info_needed", "composite": "more_info_needed"}
+    # Remap legacy and deprecated condition types — must match extractor._normalize_node
+    _REMAP = {
+        "history":          "existence",   # old name
+        "spatial":          "membership",  # old name — checkable as membership
+        "composite":        "membership",  # old name — checkable as membership
+        "more_info_needed": "membership",  # deprecated — all conditions are codeable
+    }
     ct = node.get("condition_type")
     if ct in _REMAP:
         node["condition_type"] = _REMAP[ct]
-        node.setdefault("escalated", True)
+        if ct != "history":
+            node["escalated"] = False  # remapped types are not auto-escalated
     # Drop invalid operators — Pydantic will reject unknown values
     _VALID_OPS = {"lte", "lt", "gte", "gt", "eq", "in", "not_in"}
     if node.get("operator") and node["operator"] not in _VALID_OPS:
@@ -317,7 +323,7 @@ def run(
         )
 
     # ── Guardrails ────────────────────────────────────────────────────────────
-    ruleset = apply_guardrail(ruleset, raw_document_text)
+    ruleset = apply_guardrail(ruleset, raw_document_text, is_image=False)
     ruleset = apply_safety_gate(ruleset)
 
     return AgenticResult(ruleset=ruleset, steps=steps)
@@ -423,6 +429,6 @@ def run_pdf(
             UserWarning,
         )
 
-    ruleset = apply_guardrail(ruleset, raw_document_text)
+    ruleset = apply_guardrail(ruleset, raw_document_text, is_image=False)
     ruleset = apply_safety_gate(ruleset)
     return AgenticResult(ruleset=ruleset, steps=steps)

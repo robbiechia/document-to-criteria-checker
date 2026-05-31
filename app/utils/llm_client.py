@@ -60,25 +60,44 @@ def _strip_markdown_fences(text: str) -> str:
     return text
 
 
-def complete_with_pdf(
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def _file_content_block(file_path: str) -> dict:
+    """Return an OpenRouter content block for a PDF or image file."""
+    suffix = pathlib.Path(file_path).suffix.lower()
+    raw = pathlib.Path(file_path).read_bytes()
+    b64 = base64.b64encode(raw).decode("utf-8")
+    if suffix == ".pdf":
+        mime = "application/pdf"
+    elif suffix in _IMAGE_MIME:
+        mime = _IMAGE_MIME[suffix]
+    else:
+        raise ValueError(f"Unsupported file type: {suffix}")
+    return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
+
+
+def complete_with_file(
     system: str,
     user: str,
-    pdf_path: str,
+    file_path: str,
     model: Optional[str] = None,
     max_tokens: int = 8192,
     temperature: float = 0.0,
 ) -> CompletionResult:
-    """Call a multimodal LLM with the PDF passed as inline base64 content.
+    """Call a multimodal LLM with a PDF or image passed as inline base64 content.
 
-    The model reads the PDF natively — no pdfplumber pre-extraction.
-    Use for Gemini models which handle PDF layout, tables, and structure
-    better than flat text extraction.
+    Supports: .pdf, .png, .jpg, .jpeg, .webp, .gif
+    The model reads the file natively — no pre-extraction.
     """
-    model_name = model or _cfg.get("MODEL_STAGE1", "google/gemini-2.5-flash")
+    model_name = model or _cfg.get("MODEL_STAGE1", "google/gemini-3.5-flash")
     client = _get_client()
-
-    pdf_bytes = pathlib.Path(pdf_path).read_bytes()
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
     start = time.time()
     response = client.chat.completions.create(
@@ -89,10 +108,7 @@ def complete_with_pdf(
                 "role": "user",
                 "content": [
                     {"type": "text", "text": user},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:application/pdf;base64,{pdf_b64}"},
-                    },
+                    _file_content_block(file_path),
                 ],
             },
         ],
@@ -112,6 +128,33 @@ def complete_with_pdf(
         model=model_name,
         provider="openrouter",
     )
+
+
+def ocr_image(image_path: str, model: Optional[str] = None) -> str:
+    """Extract all readable text from an infographic image using a multimodal LLM.
+
+    Returns a flat text string suitable for the hallucination guardrail's
+    fuzzy source-clause verification. Preserves numbers, labels, and categories.
+    """
+    model_name = model or _cfg.get("MODEL_STAGE1", "google/gemini-3.5-flash")
+    result = complete_with_file(
+        system=(
+            "You are an OCR system. Extract all readable text from the image exactly "
+            "as it appears. Preserve all numbers, labels, category names, and eligibility "
+            "criteria text. Output only the extracted text with no commentary or formatting."
+        ),
+        user="Extract all text from this image.",
+        file_path=image_path,
+        model=model_name,
+        max_tokens=4096,
+        temperature=0.0,
+    )
+    return result.text
+
+
+# Keep backwards-compatible aliases
+def complete_with_pdf(system, user, pdf_path, model=None, max_tokens=8192, temperature=0.0):
+    return complete_with_file(system, user, pdf_path, model, max_tokens, temperature)
 
 
 def complete_with_pdf_and_text(

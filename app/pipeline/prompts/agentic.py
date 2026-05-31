@@ -16,7 +16,7 @@ Key improvement over single-call approaches:
 
 Condition types:
   threshold, membership, temporal, computation, sequential,
-  existence (escalated), discretionary (escalated), more_info_needed (escalated)
+  existence, discretionary (escalated)
 """
 
 # ---------------------------------------------------------------------------
@@ -25,11 +25,19 @@ Condition types:
 # ---------------------------------------------------------------------------
 
 AGENT_STEP1_SYSTEM = """
-You are reading an HDB eligibility policy document.
+You are reading a Singapore government policy document.
 
 Your task: find and list every distinct evaluatable condition AND tag the document
 structure each condition appears in. The structure tag is used in the next step to
 determine AND vs OR relationships correctly.
+
+CRITICAL: Only list conditions EXPLICITLY STATED in the document.
+Do NOT infer, derive, or add conditions that are implied but not written.
+Do NOT add generic requirements (citizenship, age, residency) unless explicitly stated.
+Do NOT add conditions from your general knowledge about Singapore policy.
+Do NOT list a condition that merely names a grouping category (e.g. "for households with
+no income" as a condition). That context belongs in the description of the actual
+evaluatable conditions within that group. Every candidate must be independently evaluatable.
 
 For each condition:
   - Write a plain-English description
@@ -129,31 +137,35 @@ Each candidate has a document_pattern tag. Use it to determine AND vs OR:
 
   standalone      → AND sibling of root by default.
 
-CLASSIFY each condition:
+CLASSIFY each condition.
+The type is determined by LOGICAL STRUCTURE only — never by which agency provides the data.
+The user may be from IRAS, CPF, MSF, or any agency. Assume any profile field can be populated.
 
   condition_type — one of:
-    threshold    : single numeric vs fixed value (buyer_age >= 21)
-    membership   : field in or not_in a set (citizenship in {SC, SPR})
+    threshold    : numeric comparison against a fixed value.
+                   "Assessable Income ≤ $39,000" → threshold (not existence).
+                   "Annual Value ≤ $21,000" → threshold.
+                   Agency name in the clause does NOT change this.
+    membership   : field in or not_in a set (citizenship, card status, household type)
     temporal     : duration check — gte for waits, lte for deadlines
-    computation  : multi-step formula OR grant amount row (entitlement field required)
+    computation  : multi-step formula (income averaged over months worked) OR grant amount row
     sequential   : BOTH current AND next state must match a transition pair
-    existence    : record row check in external system (escalated=true)
-                   first-timer, prior grants, prior loans
-    discretionary: officer judgment (escalated=true)
-    more_info_needed: scope too broad for a profile — property ownership,
-                   MOP ongoing monitoring (escalated=true)
+    existence    : ONLY for historical record queries (did an event ever occur?):
+                   first-timer status, prior grant receipt, prior HDB loan count.
+                   NOT for: citizenship, income, AV, property status (those are membership/threshold)
+    discretionary: officer judgment, no fixed rule — the ONLY auto-escalated type
 
   Additional fields:
-    field_required : profile field name (null for escalated types)
+    field_required : profile field name
     operator       : lte / lt / gte / gt / eq / in / not_in
     threshold      : scalar or list (null if not applicable)
     entitlement    : "$X,000 Grant Name" for grant amount rows (null otherwise)
-    escalated      : true for existence, discretionary, more_info_needed
+    escalated      : true only for discretionary
     escalation_note: one-line reason (null if not escalated)
 
-Income ceilings are computation (not threshold) — income is averaged over months worked.
-Grant amount rows are computation with an entitlement field.
-Citizenship checks (SC, SPR) are membership (not threshold).
+Income ceiling with averaging formula → computation. Simple numeric ceiling → threshold.
+Grant amount rows → computation with entitlement field.
+Citizenship checks (SC, SPR) → membership (not threshold).
 
 Output the full tree directly (root + escalated_rules):
 {
@@ -260,16 +272,18 @@ Your task: check for errors and output a corrected version.
    Paraphrased or invented → replace with actual text.
 
 2. TYPE ACCURACY
-   existence: only for record row checks (first-timer, prior grant, prior loan).
-              NOT for property ownership.
-   more_info_needed: property ownership (definition too broad — EC units, HUDC,
-                     nominees, trusts), MOP occupancy monitoring.
-   computation: income ceilings ($14,000 / $21,000) must be computation not threshold.
+   existence: only for historical record queries (first-timer, prior grant, prior loan).
+              NOT for citizenship, income, AV, property — those are membership/threshold.
+   property ownership: membership (owns_private_property == false) — NOT more_info_needed.
+   citizenship: membership — NOT existence or more_info_needed.
+   Any numeric value (income, AV, assessable income): threshold — agency source is irrelevant.
+   computation: income ceilings must be computation if they use the averaging formula.
                 Grant amount rows must be computation with entitlement field set.
-   membership: citizenship checks (SC, SPR) are membership not threshold.
+   If more_info_needed appears in the tree: convert to membership with escalated=false.
 
 3. ESCALATION
-   existence, more_info_needed, discretionary → escalated=true, in escalated_rules only.
+   discretionary → escalated=true, in escalated_rules only.
+   existence → stays in tree, generates code, escalates only if profile field missing.
 
 4. OPERATOR DIRECTION
    "must not exceed" → lte | "at least N" → gte | "within N months" → lte

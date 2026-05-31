@@ -37,9 +37,14 @@ from app.pipeline.prompts import (
 from app.utils.llm_client import (
     CompletionResult,
     complete,
+    complete_with_file,
     complete_with_pdf,
     complete_with_pdf_and_text,
+    ocr_image,
 )
+
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+_PDF_SUFFIX = ".pdf"
 import app.config as _cfg
 
 SINGLE_CALL_VARIANTS = {
@@ -112,19 +117,25 @@ def _normalize_node(node: dict, _counter: list | None = None) -> None:
     node.pop("ambiguity_flag", None)
     node.pop("ambiguity_note", None)
     node.pop("interpretation_assumed", None)
-    # Remap legacy condition types to current schema
+    # Remap legacy or deprecated condition types
     _TYPE_REMAP = {
-        "history": "existence",
-        "spatial": "more_info_needed",
-        "composite": "more_info_needed",
+        "history":          "existence",    # old name for existence
+        "spatial":          "membership",   # old name — remap to membership (checkable)
+        "composite":        "membership",   # old name — remap to membership
+        "more_info_needed": "membership",   # deprecated — all conditions are codeable;
+                                            # "more info needed" just means populate the
+                                            # profile field; the check itself is standard
     }
     ct = node.get("condition_type")
     if ct in _TYPE_REMAP:
-        node["condition_type"] = _TYPE_REMAP[ct]
-        if not node.get("escalated"):
-            node["escalated"] = True
-        if not node.get("escalation_note"):
-            node["escalation_note"] = f"remapped from legacy type '{ct}'"
+        remapped = _TYPE_REMAP[ct]
+        node["condition_type"] = remapped
+        # Only set escalated for genuine existence checks, not for remapped membership
+        if ct == "history":
+            pass  # existence stays as-is; should_escalate handles it
+        else:
+            # Clear escalated flag — these are now codeable membership checks
+            node["escalated"] = False
 
     # Intermediate nodes must not have condition_type; leaf nodes without one → escalate
     if node.get("conditions") and node.get("condition_type"):
@@ -257,13 +268,23 @@ def _parse_and_validate(
     raise RuntimeError("Extraction failed after all retries")
 
 
+def _is_image(file_path: str) -> bool:
+    return pathlib.Path(file_path).suffix.lower() in _IMAGE_SUFFIXES
+
+
 def _prepare_document(
-    pdf_path: str,
+    file_path: str,
     use_hints: bool,
     variant: str,
 ) -> tuple[str, str]:
-    """Return (formatted_doc_text, raw_doc_text)."""
-    chunks = extract_chunks(pdf_path)
+    """Return (formatted_doc_text, raw_doc_text).
+
+    For image files returns empty strings — text extraction is not applicable.
+    Image-based variants must use complete_with_file directly.
+    """
+    if _is_image(file_path):
+        return "", ""
+    chunks = extract_chunks(file_path)
     filtered = filter_obligation_chunks(chunks)
     effective_hints = use_hints
     hints = extract_hints(filtered) if effective_hints else None
@@ -285,8 +306,11 @@ def extract_rules(
 ) -> tuple[RuleSet, Union[CompletionResult, list]]:
     """Run Stage 1 extraction and return (RuleSet, completion_metadata).
 
+    Accepts PDF or image files (.png, .jpg, .jpeg, .webp, .gif).
+    Images are always routed through the native file path (no pdfplumber).
     For single-call variants, completion_metadata is a CompletionResult.
     For the agentic variant, it is a list of per-step dicts.
+    doc_id is derived from the file stem (e.g. 'cpf_housing_grants_eligibility').
     """
     if variant not in ALL_VARIANTS:
         raise ValueError(
@@ -296,11 +320,20 @@ def extract_rules(
     if chunking not in {"full", "section"}:
         raise ValueError(f"Unknown chunking strategy: {chunking!r}")
 
+    is_image = _is_image(pdf_path)
+    # Images are always treated as native-file input regardless of variant
+    if is_image and variant in ("direct", "cot", "cot_examples"):
+        variant = "direct_pdf"  # routes through complete_with_file
+
     scenario = (
         constraint_scenario
         or "Extract all eligibility conditions from this policy document."
     )
     document_text, raw_document_text = _prepare_document(pdf_path, use_hints, variant)
+
+    # For images: OCR is no longer used for guardrail matching (see guardrails.py).
+    # The image guardrail marks all conditions for visual verification instead.
+    # OCR is kept available for the Streamlit review tab via the ui layer.
 
     # ── Agentic paths ─────────────────────────────────────────────────────────
     if variant in ("agentic", "agentic_pdf"):
@@ -333,10 +366,10 @@ def extract_rules(
         user_message = STAGE1_USER_TEMPLATE_PDF.format(constraint_scenario=scenario)
         system_prompt = STAGE1_SYSTEM_COT if variant == "cot_pdf" else STAGE1_SYSTEM_DIRECT
 
-        completion = complete_with_pdf(
+        completion = complete_with_file(
             system=system_prompt,
             user=user_message,
-            pdf_path=pdf_path,
+            file_path=pdf_path,
             model=model_name,
             max_tokens=STAGE1_MAX_TOKENS,
             temperature=0.0,
@@ -366,7 +399,7 @@ def extract_rules(
                 UserWarning,
             )
 
-        ruleset = apply_guardrail(ruleset, raw_document_text)
+        ruleset = apply_guardrail(ruleset, raw_document_text, is_image=is_image)
         ruleset = apply_safety_gate(ruleset)
         return ruleset, completion
 
@@ -408,7 +441,7 @@ def extract_rules(
                 UserWarning,
             )
 
-        ruleset = apply_guardrail(ruleset, raw_document_text)
+        ruleset = apply_guardrail(ruleset, raw_document_text, is_image=is_image)
         ruleset = apply_safety_gate(ruleset)
         return ruleset, completion
 
@@ -450,6 +483,6 @@ def extract_rules(
             UserWarning,
         )
 
-    ruleset = apply_guardrail(ruleset, raw_document_text)
+    ruleset = apply_guardrail(ruleset, raw_document_text, is_image=is_image)
     ruleset = apply_safety_gate(ruleset)
     return ruleset, completion

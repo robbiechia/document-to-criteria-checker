@@ -95,15 +95,22 @@ def _chunk_page_text(text: str, page_num: int) -> list[Chunk]:
 
 def extract_chunks(pdf_path: str) -> list[Chunk]:
     """Extract text from a PDF while preserving coarse page/clause context."""
+    import warnings
     path = Path(pdf_path)
     if path.suffix.lower() == ".txt":
         return _chunk_page_text(path.read_text(encoding="utf-8"), 1)
 
     chunks: list[Chunk] = []
-    with pdfplumber.open(path) as pdf:
-        for page_num, page in enumerate(pdf.pages, 1):
-            text = page.extract_text(layout=False) or ""
-            chunks.extend(_chunk_page_text(text, page_num))
+    # Suppress pdfminer font-descriptor warnings from malformed PDFs — these are
+    # cosmetic warnings about missing FontBBox metadata and don't affect text extraction.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*FontBBox.*")
+        warnings.filterwarnings("ignore", message=".*cannot be parsed.*")
+        warnings.filterwarnings("ignore", category=UserWarning, module="pdfminer")
+        with pdfplumber.open(path) as pdf:
+            for page_num, page in enumerate(pdf.pages, 1):
+                text = page.extract_text(layout=False) or ""
+                chunks.extend(_chunk_page_text(text, page_num))
     return [c for c in chunks if len(c.text.strip()) > 20]
 
 

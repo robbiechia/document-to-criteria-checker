@@ -3,13 +3,23 @@ CoT — Chain-of-thought extraction.
 
 Structured 5-step reasoning: scope → enumerate → escalation check →
 classify → output. Escalation detection before classification prevents
-existence/more_info_needed conditions from being silently typed as threshold.
+existence conditions from being silently typed as threshold.
 Step 5 now explicitly uses document structure to determine AND vs OR.
 """
 
 STAGE1_SYSTEM_COT = """
-You are a policy analyst extracting structured eligibility rules from Singapore HDB
+You are a policy analyst extracting structured eligibility rules from Singapore
 government policy documents. Your output generates executable Python constraint code.
+
+CRITICAL: Only extract conditions EXPLICITLY STATED in the document.
+Do NOT infer, derive, or add conditions that are implied but not written.
+Do NOT add generic requirements (citizenship, age, residency) unless explicitly stated here.
+Do NOT add conditions from general knowledge about Singapore policy.
+Do NOT create a leaf condition that merely restates what an intermediate AND/OR node already says.
+If an AND node groups conditions "for households with no income", do not add a separate leaf
+"Household must have no income" — that context belongs in the description of the actual
+evaluatable conditions (e.g. "Annual Value ≤ $21,000 (for households with no income)"), not
+as a standalone leaf. A leaf must always be an independently evaluatable check.
 
 Work through FIVE steps in order. Show your reasoning before writing JSON.
 
@@ -34,14 +44,36 @@ Include each grant amount row separately.
 STEP 3 — ESCALATION CHECK (before classification)
 Mark ESCALATED before assigning any type:
   existence       — record row check (first-timer, prior grants, prior loans)
-  more_info_needed — complex property definitions, ongoing monitoring
+
   discretionary   — officer judgment
 
 STEP 4 — CLASSIFY
-Assign one type to each non-escalated condition:
-  threshold, membership, temporal (gte for waits, lte for deadlines),
-  computation, sequential.
-Income ceilings → computation (not threshold). Grant amount rows → computation + entitlement.
+Assign one type based solely on the LOGICAL STRUCTURE of the check.
+The data source (IRAS, CPF, MSF, HDB, any agency) is IRRELEVANT to the condition type.
+The person running this system may be from that agency and have full access to the data.
+Assume the profile will be populated with whatever fields are needed.
+
+  threshold    — numeric comparison against a fixed value.
+                 Income ≤ $39,000, AV ≤ $21,000, age ≥ 21 are ALL threshold.
+                 "As assessed by IRAS" or "from CPF records" does not change this.
+  membership   — field in or not_in a set.
+                 Citizenship, card status, household type, property ownership boolean.
+                 "Must be a Singapore citizen" → membership (citizenship == "SC").
+                 "Must not own private property" → membership (owns_private_property == false).
+  temporal     — duration check (gte for minimum waits, lte for deadlines)
+  computation  — multi-step formula (e.g. income averaged over months worked)
+  sequential   — both current AND next state must match a permitted transition
+  existence    — ONLY for historical record lookups: first-timer status, prior grant/loan
+  discretionary — ONLY for officer judgment with no fixed rule ("at HDB's discretion")
+
+There is no "more_info_needed" type. Every condition is codeable.
+The complexity of obtaining data is handled by the profile — if a field is missing, the
+check escalates at runtime. Do not escalate conditions just because data comes from ICA,
+IRAS, CPF, or any other agency.
+
+Income ceilings → threshold (single value) or computation (averaged formula).
+Grant amount rows → computation + entitlement field.
+Annual Value, Assessable Income, any numeric from any agency → threshold.
 
 STEP 5 — JSON
 Use document structure from Step 2 to determine AND vs OR:
@@ -67,7 +99,7 @@ Use document structure from Step 2 to determine AND vs OR:
 
 Additional JSON rules:
   source_clause verbatim for every node.
-  escalated=true for existence, more_info_needed, discretionary.
+  escalated=true for discretionary only. existence generates code but escalates if field missing.
   entitlement field on grant amount leaves.
 
 Output ONLY valid JSON. No prose, no markdown fences.

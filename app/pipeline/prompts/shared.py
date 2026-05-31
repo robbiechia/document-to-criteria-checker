@@ -70,11 +70,12 @@ Return a RuleSet JSON object with this shape:
 }}
 
 Allowed condition_type values: threshold, membership, temporal, computation,
-sequential, existence, discretionary, more_info_needed.
+sequential, existence, discretionary.
+Do NOT use more_info_needed — every condition is codeable as threshold or membership.
 Allowed operator values: lte, lt, gte, gt, eq, in, not_in.
 Intermediate nodes (AND/OR) must use logic and conditions array. Leaf nodes must use condition_type.
 Do not flatten OR alternatives into an AND list.
-Set escalated=true for existence, discretionary, and more_info_needed conditions.
+Only include conditions explicitly stated in the document — do not infer or add implied conditions.
 Include entitlement field (e.g. "$80,000") on conditions that specify a grant amount or benefit.
 """
 
@@ -94,13 +95,13 @@ Your previous response produced valid JSON but failed schema validation:
 {pydantic_error}
 
 Common issues:
-- condition_type must be one of: threshold, membership, temporal, computation, composite,
-  sequential, history, spatial, discretionary
+- condition_type must be one of: threshold, membership, temporal, computation,
+  sequential, existence, discretionary
 - operator must be one of: lte, lt, gte, gt, eq, in, not_in
 - Leaf nodes must have condition_type set
 - Intermediate AND/OR nodes must NOT have condition_type set
 - source_clause must be a non-empty verbatim string from the document
-- Escalated leaf nodes must have escalated=true
+- Only discretionary conditions have escalated=true; all other types are codeable
 
 Please correct the issue and return ONLY valid JSON.
 Original request: {original_user_message}
@@ -166,11 +167,12 @@ Return a RuleSet JSON object with this shape:
   "cot_reasoning": null
 }}
 
-Allowed condition_type values: threshold, membership, temporal, computation, composite,
-sequential, history, spatial, discretionary.
+Allowed condition_type values: threshold, membership, temporal, computation,
+sequential, existence, discretionary.
 Allowed operator values: lte, lt, gte, gt, eq, in, not_in.
 Intermediate nodes (AND/OR) must use logic and conditions array. Leaf nodes must use condition_type.
 Do not flatten OR alternatives into an AND list.
+Only include conditions explicitly stated — do not infer or add implied conditions.
 source_clause must be the VERBATIM sentence from the document.
 """
 
@@ -230,11 +232,12 @@ Return a RuleSet JSON object with this shape:
   "cot_reasoning": null
 }}
 
-Allowed condition_type values: threshold, membership, temporal, computation, composite,
-sequential, history, spatial, discretionary.
+Allowed condition_type values: threshold, membership, temporal, computation,
+sequential, existence, discretionary.
 Allowed operator values: lte, lt, gte, gt, eq, in, not_in.
 Intermediate nodes (AND/OR) must use logic and conditions array. Leaf nodes must use condition_type.
 Do not flatten OR alternatives into an AND list.
+Only include conditions explicitly stated — do not infer or add implied conditions.
 source_clause must be the VERBATIM sentence from the attached document.
 """
 
@@ -243,33 +246,32 @@ source_clause must be the VERBATIM sentence from the attached document.
 # ---------------------------------------------------------------------------
 
 STAGE2_LLM_SYSTEM = """
-You are a Python code generator. Given a RuleSet JSON extracted from a Singapore HDB
-eligibility policy document, generate executable Python constraint functions.
+You are a Python code generator. Given a RuleSet JSON from a policy document,
+generate executable Python constraint functions.
 
-Structure the generated code as follows:
+Condition types and how to generate each:
+  threshold   — direct comparison: profile.get(field) op value
+  membership  — set check: profile.get(field) in {set}
+  temporal    — duration check: same as threshold with date arithmetic if needed
+  computation — formula stub: profile.get(field) as placeholder; add # FORMULA comment
+  sequential  — two-field check: profile.get(current) and profile.get(next)
+  existence   — record check: profile.get(field) — [] or False means allow, non-empty means deny
+  discretionary — ONLY these get escalation stubs that always return "escalate"
 
-1. One check function per executable leaf condition (threshold, membership, temporal,
-   computation, composite, sequential). Name it check_<rule_id_lower>().
-2. One escalation stub per escalated rule. Name it escalate_<rule_id_lower>().
-3. A DISPATCH dict mapping rule_id strings to their functions.
-4. A _TREE constant encoding the AND/OR tree as nested tuples:
-   (rule_id, logic, [(child_id, child_logic, [grandchildren...]), ...])
-5. A _eval_node() helper that walks the tree.
-6. An evaluate(profile: dict) -> dict function that returns:
-   {"overall_verdict": "allow"|"deny"|"escalate",
-    "results": [...], "escalated_rule_ids": [...]}
+Structure:
+1. One check_<rule_id>() per leaf in the executable tree (all types except discretionary)
+2. One escalate_<rule_id>() per discretionary condition in escalated_rules
+3. DISPATCH dict: rule_id → function
+4. _TREE constant: nested tuples encoding the AND/OR structure
+5. _eval_node() helper that walks _TREE
+6. evaluate(profile: dict) → {"overall_verdict", "results", "escalated_rule_ids"}
 
 Rules:
-- Each check function takes profile: dict[str, Any] and returns RuleResult
-- If a required field is missing from profile, return verdict="escalate"
-- Include the verbatim source_clause in every function docstring
-- Escalation stubs always return verdict="escalate"
-- Do NOT import os, sys, subprocess, socket, requests, or any network/file libraries
-- Do NOT use eval(), exec(), open(), or __import__()
-- Computation conditions: generate a stub that returns escalate with a note explaining
-  the formula required, since multi-step formulas cannot be auto-generated
+- Missing profile field → return verdict="escalate" (never crash)
+- source_clause verbatim in every function docstring
+- No os, sys, subprocess, socket, requests, eval, exec, open
 
-Output ONLY the Python code. No prose, no markdown fences.
+Output ONLY Python code. No prose, no markdown fences.
 """
 
 STAGE2_LLM_USER_TEMPLATE = """
@@ -292,7 +294,8 @@ Review the code for these specific issues:
 1. OPERATOR DIRECTION: does the comparison operator match "must not exceed" (lte),
    "at least" (gte), "less than" (lt), "more than" (gt)?
 2. THRESHOLD VALUES: does the numeric threshold in the code match the document value exactly?
-3. ESCALATION CORRECTNESS: are history, spatial, discretionary conditions returning escalate?
+3. ESCALATION CORRECTNESS: only discretionary conditions should return escalate unconditionally.
+   existence/threshold/membership conditions should return escalate only if the profile field is missing.
 4. MISSING EDGE CASES: are missing profile fields handled (return escalate, not crash)?
 5. OR TREE LOGIC: does the evaluate() function correctly allow if ANY OR child passes?
 
