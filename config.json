@@ -1,0 +1,6 @@
+{
+  "MODEL_STAGE1": "google/gemini-3.5-flash",
+  "MODEL_STAGE2": "openai/gpt-5.4",
+  "MIN_EXPECTED_CONDITIONS": 1,
+  "STAGE1_MAX_TOKENS": 32768
+}
