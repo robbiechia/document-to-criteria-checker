@@ -30,7 +30,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 def load_corpus(csv_path: str, doc_id: str | None = None) -> list[dict]:
     rows = []
-    with open(csv_path, newline="", encoding="latin-1") as f:
+    with open(csv_path, newline="", encoding="utf-8") as f:
         for idx, row in enumerate(csv.DictReader(f)):
             if not (row.get("clause_verbatim") or "").strip():
                 continue
@@ -354,7 +354,7 @@ def eval_stage1(ruleset_path: str, corpus: list[dict], label: str, out_dir: str 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ruleset", required=True)
-    parser.add_argument("--corpus", default="data/annotation/criterias.csv")
+    parser.add_argument("--corpus", default="data/annotation/annotations.csv")
     parser.add_argument("--doc-id", default=None)
     parser.add_argument("--label", required=True)
     parser.add_argument("--out-dir", default="eval/results",
