@@ -91,7 +91,13 @@ This was not the most extensive human-validation check covered by me, as the con
 
 ### Steps
 
-**1. Get the data**
+**1. Clone the repo**
+```bash
+git clone https://github.com/robbiechia/document-to-criteria-checker.git
+
+cd document-to-criteria-checker
+```
+**2. Get the data**
 
 Download the `data/` folder from this shared Google Drive [link](https://drive.google.com/drive/folders/1Bu855ez8YD3gf5DrX3L0x9w5idsJLvv-?usp=sharing) and place it at the project root. The folder contains:
 ```
@@ -101,13 +107,19 @@ data/
   infographic/        ← infographic PNGs
   demo_schema_singapore_citizenship.sql   ← demo SQL schema for Stage 2 generation
 ```
+**3. Set up environment variables**
+```bash
+cp .env.example .env
+```
 
-**2. Set your API key**
+**4. Set your OPENROUTER_API_KEY **
 ```bash
 echo "OPENROUTER_API_KEY=sk-or-..." > .env
 ```
 
-**3. Build and run**
+or manually edit the `.env` file to include your OpenRouter API key.
+
+**5. Build and run**
 ```bash
 docker compose build       # one-time, ~3 min
 docker compose up app      # → http://localhost:8501
