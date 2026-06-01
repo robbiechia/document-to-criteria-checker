@@ -1,0 +1,90 @@
+# =============================================================================
+# Document-to-Criteria Checker — Docker Compose
+#
+# FIRST-TIME SETUP
+# ─────────────────
+# 1. Download the data folder from the shared Google Drive link and place it
+#    at the project root so the structure looks like:
+#
+#      data/
+#        pdf/                  ← policy PDF documents
+#        infographic/          ← infographic PNG images
+#        annotation/           ← annotations.csv (already in repo)
+#
+# 2. Add your OpenRouter API key:
+#      echo "OPENROUTER_API_KEY=sk-or-..." > .env
+#
+# 3. Build the image (once, ~2-3 min):
+#      docker compose build
+#
+# 4. Start the app:
+#      docker compose up app
+#      → open http://localhost:8501
+#
+# RUNNING EVALUATIONS (no UI needed)
+# ────────────────────────────────────
+#   docker compose run --rm eval stage1 \
+#       --pdf data/pdf/ica_singapore_citizenship_eligibility.pdf \
+#       --scenario "What are the eligibility criteria to become a Singapore Citizen?"
+#
+#   docker compose run --rm eval stage2 \
+#       --ruleset eval/results/<your_label>_ruleset.json \
+#       --language python
+#
+#   docker compose run --rm eval stage2 \
+#       --ruleset eval/results/<your_label>_ruleset.json \
+#       --language sql \
+#       --schema data/demo_schema_singapore_citizenship.sql
+#
+# TESTS
+#   docker compose run --rm test
+# =============================================================================
+
+services:
+
+  # ── Streamlit web UI ────────────────────────────────────────────────────────
+  app:
+    build: .
+    image: doc-to-criteria:latest
+    container_name: doc-to-criteria-app
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env                            # OPENROUTER_API_KEY
+    volumes:
+      - ./data/pdf:/app/data/pdf                      # downloaded from Google Drive
+      - ./data/infographic:/app/data/infographic      # downloaded from Google Drive
+      - ./eval/results:/app/eval/results              # persisted experiment outputs
+      - ./config.json:/app/config.json:ro             # change models/variants without rebuild
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── CLI eval runner ──────────────────────────────────────────────────────────
+  eval:
+    build: .
+    image: doc-to-criteria:latest
+    container_name: doc-to-criteria-eval
+    env_file:
+      - .env
+    volumes:
+      - ./data/pdf:/app/data/pdf
+      - ./data/infographic:/app/data/infographic
+      - ./eval/results:/app/eval/results
+      - ./config.json:/app/config.json:ro
+    entrypoint: ["./run_eval.sh"]
+    profiles:
+      - eval
+
+  # ── Unit tests ───────────────────────────────────────────────────────────────
+  test:
+    build: .
+    image: doc-to-criteria:latest
+    container_name: doc-to-criteria-test
+    command: ["python3", "-m", "pytest", "tests/", "-v", "--tb=short"]
+    profiles:
+      - test

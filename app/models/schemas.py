@@ -119,7 +119,8 @@ class RuleSet(BaseModel):
 
     extraction_variant: Literal[
         "direct", "direct_pdf", "direct_pdf_text",
-        "cot", "cot_pdf", "cot_examples",
+        "cot", "cot_pdf", "cot_pdf_text",
+        "cot_examples", "cot_examples_pdf", "cot_examples_pdf_text",
         "cot_v1", "cot_v2", "cot_v3", "cot_v4", "hybrid",
         "agentic", "agentic_pdf",
     ]

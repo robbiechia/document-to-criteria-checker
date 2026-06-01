@@ -53,10 +53,15 @@ SINGLE_CALL_VARIANTS = {
     "cot_examples":  STAGE1_SYSTEM_COT_EXAMPLES,
 }
 
-# direct_pdf passes the raw PDF file to Gemini instead of pdfplumber text
-# direct_pdf_text passes both pdfplumber text AND the raw PDF file
-# cot_pdf: CoT system prompt + native PDF (no pdfplumber text)
-ALL_VARIANTS = set(SINGLE_CALL_VARIANTS) | {"agentic", "agentic_pdf", "direct_pdf", "direct_pdf_text", "cot_pdf"}
+# Input method × prompt variant matrix:
+#   text only:     direct | cot | cot_examples | agentic
+#   native PDF:    direct_pdf | cot_pdf | cot_examples_pdf | agentic_pdf
+#   text + PDF:    direct_pdf_text | cot_pdf_text | cot_examples_pdf_text
+ALL_VARIANTS = set(SINGLE_CALL_VARIANTS) | {
+    "agentic", "agentic_pdf",
+    "direct_pdf", "cot_pdf", "cot_examples_pdf",
+    "direct_pdf_text", "cot_pdf_text", "cot_examples_pdf_text",
+}
 
 MIN_EXPECTED_CONDITIONS = int(_cfg.get("MIN_EXPECTED_CONDITIONS", 8))
 STAGE1_MAX_TOKENS = int(_cfg.get("STAGE1_MAX_TOKENS", 32768))
@@ -361,10 +366,14 @@ def extract_rules(
         return result.ruleset, result.step_summary()
 
     # ── Native PDF paths (Gemini reads the file directly) ────────────────────
-    if variant in ("direct_pdf", "cot_pdf"):
+    if variant in ("direct_pdf", "cot_pdf", "cot_examples_pdf"):
         model_name = model or _cfg.get("MODEL_STAGE1", "google/gemini-2.5-flash")
         user_message = STAGE1_USER_TEMPLATE_PDF.format(constraint_scenario=scenario)
-        system_prompt = STAGE1_SYSTEM_COT if variant == "cot_pdf" else STAGE1_SYSTEM_DIRECT
+        system_prompt = {
+            "direct_pdf":      STAGE1_SYSTEM_DIRECT,
+            "cot_pdf":         STAGE1_SYSTEM_COT,
+            "cot_examples_pdf": STAGE1_SYSTEM_COT_EXAMPLES,
+        }[variant]
 
         completion = complete_with_file(
             system=system_prompt,
@@ -404,15 +413,20 @@ def extract_rules(
         return ruleset, completion
 
     # ── pdfplumber text + native PDF (combined) ───────────────────────────────
-    if variant == "direct_pdf_text":
+    if variant in ("direct_pdf_text", "cot_pdf_text", "cot_examples_pdf_text"):
         model_name = model or _cfg.get("MODEL_STAGE1", "google/gemini-2.5-flash")
         user_message = STAGE1_USER_TEMPLATE_PDF_AND_TEXT.format(
             document_text=document_text,
             constraint_scenario=scenario,
         )
+        system_prompt = {
+            "direct_pdf_text":       STAGE1_SYSTEM_DIRECT,
+            "cot_pdf_text":          STAGE1_SYSTEM_COT,
+            "cot_examples_pdf_text": STAGE1_SYSTEM_COT_EXAMPLES,
+        }[variant]
 
         completion = complete_with_pdf_and_text(
-            system=STAGE1_SYSTEM_DIRECT,
+            system=system_prompt,
             user=user_message,
             pdf_path=pdf_path,
             model=model_name,
@@ -428,7 +442,7 @@ def extract_rules(
             raw=completion.text,
             user_message=user_message,
             model=model_name,
-            variant="direct_pdf_text",
+            variant=variant,  # direct_pdf_text | cot_pdf_text | cot_examples_pdf_text
             model_used=model_name,
             hints_used=False,
             chunking="full",

@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets (never bake into the image)
+.env
+
+# macOS
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Large generated outputs (mounted as volumes at runtime)
+eval/results/
+data/pdf/
+data/infographic/
+data/policies/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Docs and planning files (not needed at runtime)
+*.md
+stage1_*.md
+stage2_*.md
+streamlit_changes.md
+findings.md
+idea.md
+rubrics.md
+framework.md
+dev_notes.md
+suggested_changes.md
+
+# Old/unused
+data/policies/
